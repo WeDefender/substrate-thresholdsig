@@ -120,6 +120,15 @@ git = 'https://github.com/paritytech/substrate.git'
 package = 'sr-version'
 rev = 'cc1d67e973fd02c0c997b164ba516cf041bf21f1'
 
+[lib]
+crate-type = ["rlib", "dylib"]
+
+[dependencies]
+curv = { git = "https://github.com/KZen-networks/curv" , features =  ["ec_ed25519"]}
+hex = "0.3.2"
+serde_json = "1.0"
+serde_derive = "1.0"
+
 [features]
 default = ['std']
 std = [
