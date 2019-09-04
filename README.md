@@ -1,2 +1,2 @@
-# Substrate OAuth Login Project
+# Substrate ThresholdSig Project
 
