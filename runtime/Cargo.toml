@@ -121,7 +121,7 @@ package = 'sr-version'
 rev = 'cc1d67e973fd02c0c997b164ba516cf041bf21f1'
 
 [lib]
-crate-type = ["rlib", "dylib"]
+crate-type = ["rlib"]
 
 [dependencies]
 curv = { git = "https://github.com/KZen-networks/curv" , features =  ["ec_ed25519"]}

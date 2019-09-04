@@ -58,6 +58,26 @@ pub type Nonce = u64;
 /// Used for the module template in `./template.rs`
 mod template;
 
+pub mod protocol;
+
+#[derive(Copy, PartialEq, Eq, Clone, Debug)]
+pub enum Error {
+    InvalidKey,
+    InvalidSS,
+    InvalidCom,
+    InvalidSig,
+}
+
+use std::fmt;
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self)
+    }
+}
+
+impl std::error::Error for Error {}
+
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
 /// of data like extrinsics, allowing for them to continue syncing the network through upgrades
