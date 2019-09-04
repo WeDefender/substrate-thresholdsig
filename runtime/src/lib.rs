@@ -1,6 +1,7 @@
 //! The Substrate Node Template runtime. This can be compiled with `#[no_std]`, ready for Wasm.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(not(feature = "std"), feature(alloc))]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
 #![recursion_limit="256"]
 
@@ -191,11 +192,6 @@ impl template::Trait for Runtime {
 	type Event = Event;
 }
 
-/// Used for the module template in `./template.rs`
-impl substrate_module_template::Trait for Runtime {
-	type Event = Event;
-}
-
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
 		Block = Block,
@@ -211,8 +207,6 @@ construct_runtime!(
 		Sudo: sudo,
 		// Used for the module template in `./template.rs`
 		TemplateModule: template::{Module, Call, Storage, Event<T>},
-		ExampleModule: substrate_module_template::{Module, Call, Storage, Event<T>},
-
 	}
 );
 
