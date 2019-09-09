@@ -57,8 +57,7 @@ pub type Nonce = u64;
 
 /// Used for the module template in `./template.rs`
 mod template;
-
-pub mod protocol;
+mod sig_protocol;
 
 #[derive(Copy, PartialEq, Eq, Clone, Debug)]
 pub enum Error {

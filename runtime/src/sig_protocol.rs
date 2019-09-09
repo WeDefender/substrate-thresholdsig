@@ -1,56 +1,54 @@
-#![allow(non_snake_case)]
-#[allow(unused_doc_comments)]
-/*
-    Multisig eddsa
-    Copyright 2018 by Kzen Networks
-    This file is part of multi-party-eddsa library
-    (https://github.com/KZen-networks/multi-party-eddsa)
-    Multisig Schnorr is free software: you can redistribute
-    it and/or modify it under the terms of the GNU General Public
-    License as published by the Free Software Foundation, either
-    version 3 of the License, or (at your option) any later version.
-    @license GPL-3.0+ <https://github.com/KZen-networks/multi-party-eddsa/blob/master/LICENSE>
-*/
-
-use crate::Error::{self, InvalidKey, InvalidSS, InvalidSig};
-
+use curv::{BigInt, FE, GE};
 use curv::arithmetic::traits::*;
-
-use curv::elliptic::curves::traits::*;
-
 use curv::cryptographic_primitives::commitments::hash_commitment::HashCommitment;
 use curv::cryptographic_primitives::commitments::traits::Commitment;
 use curv::cryptographic_primitives::hashing::hash_sha512::HSha512;
 use curv::cryptographic_primitives::hashing::traits::*;
 use curv::cryptographic_primitives::secret_sharing::feldman_vss::VerifiableSS;
-use curv::{BigInt, FE, GE};
+use curv::elliptic::curves::traits::*;
+use serde::{Deserialize, Serialize};
 
-use serde::{Serialize, Deserialize};
+use crate::Error::{self, InvalidKey, InvalidSig, InvalidSS};
 
 const SECURITY: usize = 256;
 
-// u_i is private key and {u__i, prefix} are extended private key.
+#[derive(Debug)]
 pub struct Keys {
+    // private key
     pub u_i: FE,
+    // public key
     pub y_i: GE,
+    // extension prefix
     pub prefix: FE,
+    // index of node
     pub party_index: usize,
+}
+
+#[derive(Debug)]
+pub struct Parameters {
+    // threshold: t
+    pub threshold: usize,
+    // total count: n
+    pub share_count: usize,
 }
 
 pub struct KeyGenBroadcastMessage1 {
     com: BigInt,
 }
 
-#[derive(Debug)]
-pub struct Parameters {
-    pub threshold: usize,   //t
-    pub share_count: usize, //n
-}
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SharedKeys {
     pub y: GE,
     pub x_i: FE,
     prefix: FE,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct Signature {
+    // signature
+    pub sigma: FE,
+    // public key
+    pub R: GE,
 }
 
 pub struct EphemeralKey {
@@ -70,31 +68,27 @@ pub struct LocalSig {
     k: FE,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Signature {
-    pub sigma: FE,
-    pub R: GE,
-}
-
 impl Keys {
+    /// create Keys(private and public)
     pub fn phase1_create(index: usize) -> Keys {
+        // point
         let ec_point: GE = ECPoint::generator();
         let sk: FE = ECScalar::new_random();
         let h = HSha512::create_hash(&vec![&sk.to_big_int()]);
         let h_vec = BigInt::to_vec(&h);
-        let mut private_key: [u8; 32] = [0u8; 32];
-        let mut prefix: [u8; 32] = [0u8; 32];
-        prefix.copy_from_slice(&h_vec[32..64]);
-        private_key.copy_from_slice(&h_vec[00..32]);
+        let mut private_key: [u8; 32] = [0u8; 32]; // private key
+        let mut prefix: [u8; 32] = [0u8; 32]; // extension
+        prefix.copy_from_slice(&h_vec[32..64]); // take last part of hash
+        private_key.copy_from_slice(&h_vec[00..32]); // take first part of hash
         private_key[0] &= 248;
         private_key[31] &= 63;
         private_key[31] |= 64;
-        let private_key = &private_key[..private_key.len()];
-        let prefix = &prefix[..prefix.len()];
+        let private_key = &private_key[..private_key.len()]; // get the private key
+        let prefix = &prefix[..prefix.len()]; // get the extension prefix
         let private_key: FE = ECScalar::from(&BigInt::from(private_key));
         let prefix: FE = ECScalar::from(&BigInt::from(prefix));
         let public_key = ec_point * &private_key;
-
+        // generate Keys
         Keys {
             u_i: private_key,
             y_i: public_key,
@@ -103,55 +97,28 @@ impl Keys {
         }
     }
 
-    pub fn phase1_create_from_private_key(index: usize, secret: &BigInt) -> Keys {
-        let sk: FE = ECScalar::from(secret);
-        let ec_point: GE = ECPoint::generator();
-        let h = HSha512::create_hash(&vec![&sk.to_big_int()]);
-        let h_vec = BigInt::to_vec(&h);
-        let mut private_key: [u8; 32] = [0u8; 32];
-        let mut prefix: [u8; 32] = [0u8; 32];
-        prefix.copy_from_slice(&h_vec[32..64]);
-        private_key.copy_from_slice(&h_vec[00..32]);
-        private_key[0] &= 248;
-        private_key[31] &= 63;
-        private_key[31] |= 64;
-        let private_key = &private_key[..private_key.len()];
-        let prefix = &prefix[..prefix.len()];
-        let private_key: FE = ECScalar::from(&BigInt::from(private_key));
-        let prefix: FE = ECScalar::from(&BigInt::from(prefix));
-        let public_key = ec_point * &private_key;
-
-        Keys {
-            u_i: private_key,
-            y_i: public_key,
-            prefix,
-            party_index: index.clone(),
-        }
-    }
-
+    /// broadcast commitments and blind_factor
     pub fn phase1_broadcast(&self) -> (KeyGenBroadcastMessage1, BigInt) {
         let blind_factor = BigInt::sample(SECURITY);
+        // generate commitment from public key and blind factor
         let com = HashCommitment::create_commitment_with_user_defined_randomness(
-            &self.y_i.bytes_compressed_to_big_int(),
-            &blind_factor,
+            &self.y_i.bytes_compressed_to_big_int(), // public key
+            &blind_factor, // blind factor
         );
         let bcm1 = KeyGenBroadcastMessage1 { com };
         (bcm1, blind_factor)
     }
 
-    pub fn phase1_verify_com_phase2_distribute(
-        &self,
+    pub fn phase1_verify_com(
         params: &Parameters,
         blind_vec: &Vec<BigInt>,
         y_vec: &Vec<GE>,
         bc1_vec: &Vec<KeyGenBroadcastMessage1>,
-        parties: &[usize],
-    ) -> Result<(VerifiableSS, Vec<FE>, usize), Error> {
-        // test length:
+    ) -> bool {
+        // test parameters
         assert_eq!(blind_vec.len(), params.share_count);
         assert_eq!(bc1_vec.len(), params.share_count);
         assert_eq!(y_vec.len(), params.share_count);
-        // test decommitments
         let correct_key_correct_decom_all = (0..bc1_vec.len())
             .map(|i| {
                 HashCommitment::create_commitment_with_user_defined_randomness(
@@ -160,7 +127,21 @@ impl Keys {
                 ) == bc1_vec[i].com
             })
             .all(|x| x == true);
+        correct_key_correct_decom_all
+    }
 
+    /// verify commitment and generate vss_scheme and secret_shares
+    pub fn phase1_verify_com_phase2_distribute(
+        &self,
+        params: &Parameters,
+        blind_vec: &Vec<BigInt>,
+        y_vec: &Vec<GE>,
+        bc1_vec: &Vec<KeyGenBroadcastMessage1>,
+        parties: &[usize],
+    ) -> Result<(VerifiableSS, Vec<FE>, usize), Error> {
+        let correct_key_correct_decom_all = Self::phase1_verify_com(params, blind_vec, y_vec, bc1_vec);
+
+        // generatee vss_shceme and secret_shares from node's private key
         let (vss_scheme, secret_shares) = VerifiableSS::share_at_indices(
             params.threshold,
             params.share_count,
@@ -174,6 +155,33 @@ impl Keys {
         }
     }
 
+    /// verify vss_scheme
+    pub fn phase2_verify_vss(
+        params: &Parameters,
+        y_vec: &Vec<GE>,
+        secret_shares_vec: &Vec<FE>,
+        vss_scheme_vec: &Vec<VerifiableSS>,
+        index: &usize,
+    ) -> bool {
+        // test parameters
+        assert_eq!(y_vec.len(), params.share_count);
+        assert_eq!(secret_shares_vec.len(), params.share_count);
+        assert_eq!(vss_scheme_vec.len(), params.share_count);
+        // use node's public key to verify vss_scheme
+        let correct_ss_verify = (0..y_vec.len())
+            .map(|i| {
+                // verify vss_scheme
+                vss_scheme_vec[i]
+                    .validate_share(&secret_shares_vec[i], *index)
+                    .is_ok()
+                    // verify commitment
+                    && vss_scheme_vec[i].commitments[0] == y_vec[i]
+            })
+            .all(|x| x == true);
+        correct_ss_verify
+    }
+
+    /// verify vss_scheme and construct shared keys
     pub fn phase2_verify_vss_construct_keypair(
         &self,
         params: &Parameters,
@@ -182,52 +190,44 @@ impl Keys {
         vss_scheme_vec: &Vec<VerifiableSS>,
         index: &usize,
     ) -> Result<SharedKeys, Error> {
-        assert_eq!(y_vec.len(), params.share_count);
-        assert_eq!(secret_shares_vec.len(), params.share_count);
-        assert_eq!(vss_scheme_vec.len(), params.share_count);
-
-        let correct_ss_verify = (0..y_vec.len())
-            .map(|i| {
-                vss_scheme_vec[i]
-                    .validate_share(&secret_shares_vec[i], *index)
-                    .is_ok()
-                    && vss_scheme_vec[i].commitments[0] == y_vec[i]
-            })
-            .all(|x| x == true);
+        let correct_ss_verify = Self::phase2_verify_vss(params, y_vec, secret_shares_vec, vss_scheme_vec, index);
 
         match correct_ss_verify {
+            // verification passed
             true => {
                 let mut y_vec_iter = y_vec.iter();
                 let y0 = y_vec_iter.next().unwrap();
+                // generate signature public key: Y
                 let y = y_vec_iter.fold(y0.clone(), |acc, x| acc + x);
+                // use secret_shares to generate shared_private_key
                 let x_i = secret_shares_vec.iter().fold(FE::zero(), |acc, x| acc + x);
                 Ok(SharedKeys {
-                    y,
-                    x_i,
-                    prefix: self.prefix,
+                    y, // signature public key
+                    x_i, // private key
+                    prefix: self.prefix, // extension
                 })
             }
+            // verification failed
             false => Err(InvalidSS),
         }
     }
 }
 
 impl EphemeralKey {
-    // r = H(prefix||M): in order to do it for global r we need MPC. we skip it and deviate from the protocol
-    // Nevertheless our ephemeral key will still be deterministic as a sum of deterministic ephemeral keys:
-
+    // generate EphKeys from message and Keys
     pub fn ephermeral_key_create_from_deterministic_secret(
         keys: &Keys,
         message: &[u8],
         index: usize,
     ) -> EphemeralKey {
+        // generate hash from keys.prefix and message
         let r_local = HSha512::create_hash(&[&keys.prefix.to_big_int(), &BigInt::from(message)]);
         let r_i: FE = ECScalar::from(&r_local);
         let R_i = GE::generator() * &r_i;
 
         EphemeralKey {
-            r_i,
-            R_i,
+            r_i, // eph private key
+            R_i, // eph public key
             party_index: index,
         }
     }
@@ -250,11 +250,11 @@ impl EphemeralKey {
         bc1_vec: &Vec<KeyGenBroadcastMessage1>,
         parties: &[usize],
     ) -> Result<(VerifiableSS, Vec<FE>, usize), Error> {
-        // test length:
+        // test parameters
         assert!(blind_vec.len() > params.threshold && blind_vec.len() <= params.share_count);
         assert!(bc1_vec.len() > params.threshold && bc1_vec.len() <= params.share_count);
         assert!(R_vec.len() > params.threshold && R_vec.len() <= params.share_count);
-        // test decommitments
+        // verify commitments
         let correct_key_correct_decom_all = (0..bc1_vec.len())
             .map(|i| {
                 HashCommitment::create_commitment_with_user_defined_randomness(
@@ -336,7 +336,6 @@ impl LocalSig {
         LocalSig { gamma_i, k }
     }
 
-    // section 4.2 step 3
     #[allow(unused_doc_comments)]
     pub fn verify_local_sigs(
         gamma_vec: &Vec<LocalSig>,
@@ -348,32 +347,33 @@ impl LocalSig {
         // test that enough parties are in this round
         assert!(parties_index_vec.len() > vss_private_keys[0].parameters.threshold);
 
-        // Vec of joint commitments:
-        // n' = num of signers, n - num of parties in keygen
-        // [com0_eph_0,... ,com0_eph_n', e*com0_kg_0, ..., e*com0_kg_n ;
-        // ...  ;
-        // comt_eph_0,... ,comt_eph_n', e*comt_kg_0, ..., e*comt_kg_n ]
+        // generate joint commitments
         let comm_vec = (0..vss_private_keys[0].parameters.threshold + 1)
             .map(|i| {
+                // generate commitment from vss_scheme
                 let mut key_gen_comm_i_vec = (0..vss_private_keys.len())
                     .map(|j| vss_private_keys[j].commitments[i].clone() * &gamma_vec[i].k)
                     .collect::<Vec<GE>>();
+                // generate commitment from eph vss_scheme
                 let mut eph_comm_i_vec = (0..vss_ephemeral_keys.len())
                     .map(|j| vss_ephemeral_keys[j].commitments[i].clone())
                     .collect::<Vec<GE>>();
                 key_gen_comm_i_vec.append(&mut eph_comm_i_vec);
                 let mut comm_i_vec_iter = key_gen_comm_i_vec.iter();
                 let comm_i_0 = comm_i_vec_iter.next().unwrap();
+                // generate joint commitments
                 comm_i_vec_iter.fold(comm_i_0.clone(), |acc, x| acc + x)
             })
             .collect::<Vec<GE>>();
 
+        // generate vss_scheme
         let vss_sum = VerifiableSS {
             parameters: vss_ephemeral_keys[0].parameters.clone(),
             commitments: comm_vec,
         };
 
         let g: GE = GE::generator();
+        // verify vss_scheme
         let correct_ss_verify = (0..parties_index_vec.len())
             .map(|i| {
                 let gamma_i_g = &g * &gamma_vec[i].gamma_i;
@@ -429,5 +429,3 @@ impl Signature {
         }
     }
 }
-
-mod test;
