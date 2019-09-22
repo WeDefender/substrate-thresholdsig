@@ -8,5 +8,5 @@
 
 ## Detail
 
-![detail](assets/Substrate_thresholdsig & OAuth.png)
+![detail](assets/Polkadot_TSS.png)
 
